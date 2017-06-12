@@ -1,3 +1,5 @@
+[![Build Status](https://jenkins.juliogonzalez.es/job/poppler-amazon-rpm-build/badge/icon)](https://jenkins.juliogonzalez.es/job/poppler-amazon-rpm-build/)
+
 poppler
 =======
 
@@ -12,6 +14,7 @@ Requirements
 ------------
 
 * automake
+* gcc-c++
 * libtool
 * cairo-devel >= 1.8.4
 * lcms-devel

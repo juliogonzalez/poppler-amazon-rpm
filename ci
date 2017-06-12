@@ -1,0 +1,130 @@
+#!/bin/bash
+# Language (force it so getopt messages are always in english, as the script)
+LANG=en_EN
+
+# Get script name
+SCRIPT=$(basename ${0})
+
+# Supported distributions
+SUPPORTEDDISTROS="amazon2016.09 amazon2017.03"
+
+# Allocate tty by default
+TTY='-t'
+
+print_info() {
+  echo -e "\033[1;36m[INFO] ${1}\033[0m"
+}
+
+print_error() {
+  echo -e "\033[1;31m[ERROR] ${1}\033[0m"
+}
+
+print_ok() {
+  echo -e "\033[1;32m[INFO] ${1}\033[0m"
+}
+
+print_incorrect_syntax() {
+  print_error "Incorrect syntax. Use ${SCRIPT} -h for help"
+}
+
+print_error_unsupported_distro() {
+  print_error "Unsupported distro. Use ${SCRIPT} -h for help"
+}
+
+print_help() {
+  echo ""
+  echo "Script to perform poppler-amazon-rpm CI"
+  echo ""
+  echo "Syntax: "
+  echo ""
+  echo "${SCRIPT} <ARGUMENTS>"
+  echo ""
+  echo "Mandatory arguments:"
+  echo ""
+  echo " --distro=<$(echo ${1}|tr ' ' '|')>"
+  echo ""
+  echo "Optional arguments:"
+  echo ""
+  echo "  --name=<CONTAINER_NAME> Define the container name"
+  echo "                          If undefined, container name will be"
+  echo "                          poppler-amazon-rpm-<DISTRO>-<TIMESTAMP>"
+  echo "  --remove-on-error If present, remove the container on errors"
+  echo "  --notty           If present, does not allocate a tty for docker"
+  echo ""
+}
+
+remove_container() {
+  docker container rm -f ${1}
+}
+
+exit_error() {
+  if [ ${1} -ne 0 ]; then
+    print_error "An error happened! Check log!"
+    if [ ! -z ${REMOVE_ON_ERROR} ]; then
+      remove_container ${CONTAINER_NAME}
+    fi
+    exit 1
+  fi
+}
+
+docker_run() {
+  if [ ! -z ${3} ]; then
+    local COMMAND_USER="-u ${3}"
+  fi
+  local COMMAND="docker container exec -i ${TTY} ${COMMAND_USER} ${1} ${2}"
+  ${COMMAND}
+  exit_error ${?}
+}
+
+# read the options
+ARGS=$(getopt -o h --long help,remove-on-error,notty,distro:,name: -n "${SCRIPT}" -- "$@")
+if [ $? -ne 0 ];
+then
+  print_incorrect_syntax
+  exit 1
+fi
+eval set -- "${ARGS}"
+
+# extract options and their arguments into variables
+while true ; do
+  case "${1}" in
+    -h|--help)         print_help "${SUPPORTEDDISTROS}"; exit 1;;
+    --remove-on-error) REMOVE_ON_ERROR="TRUE"; shift 1 ;;
+    --notty)           TTY=""; shift 1 ;;
+    --distro)          DISTRO="${2}"; shift 2;;
+    --name)            CONTAINER_NAME="${2}"; shift 2;;
+    --)                shift ; break ;;
+    *)                 print_incorrect_syntax; exit 1;;
+  esac
+done
+
+# Check distribution
+case "${DISTRO}" in
+  amazon2016.09) DOCKER_IMAGE='amazonlinux:2016.09' ;;
+  amazon2017.03) DOCKER_IMAGE='amazonlinux:2017.03' ;;
+  *)             print_error_unsupported_distro
+                 exit 1;;
+esac
+
+# Check name
+if [ -z ${CONTAINER_NAME} ]; then
+  CONTAINER_NAME="poppler-amazon-rpm-${DISTRO}-$(date +'%s')"
+fi
+
+print_info "Starting container ${CONTAINER_NAME}..."
+docker container run -i ${TTY} --name "${CONTAINER_NAME}" -v ${PWD}:/tmp/poppler-amazon-rpm -w /tmp/poppler-amazon-rpm -d ${DOCKER_IMAGE} /bin/bash -c 'while [ 1 -eq 1 ]; do sleep 60; done'
+print_info "Cleaning up"
+docker_run "${CONTAINER_NAME}" "./clean"
+print_info "Installing required dependencies..."
+docker_run "${CONTAINER_NAME}" "/usr/bin/yum -q -y install automake gcc-c++ libtool cairo-devel lcms-devel libjpeg-devel rpm-build poppler-data gtk-doc"
+print_info "Configuring user ci..."
+docker_run "${CONTAINER_NAME}" "/usr/sbin/groupadd -g $(id -g) ci"
+docker_run "${CONTAINER_NAME}" "/usr/sbin/useradd -m -d /home/ci -u ${UID} -g $(id -g) ci"
+docker_run "${CONTAINER_NAME}" "/bin/chown ci:ci /home/ci"
+print_info "Building poppler package..."
+docker_run "${CONTAINER_NAME}" "./poppler-rpm" "ci"
+print_info "Installing poppler package..."
+docker_run "${CONTAINER_NAME}" "/bin/rpm -i RPMS/$HOSTTYPE/poppler-*.*.$HOSTTYPE.rpm"
+print_info "Removing container..."
+remove_container ${CONTAINER_NAME}
+print_ok "Everything OK"

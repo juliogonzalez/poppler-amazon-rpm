@@ -1,4 +1,6 @@
 #!/bin/bash
+VERSION='0.12.4'
+
 function check_create_dir {
   if [ ! -d "./$1" ]; then
     mkdir "./$1"
@@ -13,8 +15,8 @@ check_create_dir SOURCES
 check_create_dir SPECS
 check_create_dir SRPMS
 
-if [ ! -f './SOURCES/poppler-0.12.4.tar.gz' ]; then
-  wget 'http://poppler.freedesktop.org/poppler-0.12.4.tar.gz' -O './SOURCES/poppler-0.12.4.tar.gz'
+if [ ! -f "./SOURCES/poppler-${VERSION}.tar.gz" ]; then
+  curl -s -L "http://poppler.freedesktop.org/poppler-${VERSION}.tar.gz" -o "./SOURCES/poppler-${VERSION}.tar.gz"
 fi
 
 rpmbuild --define "_topdir `pwd`" -ba 'SPECS/poppler.spec'
